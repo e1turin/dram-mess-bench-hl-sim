@@ -2,6 +2,8 @@
 
 import statistics as stats
 
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
 import numpy as np
 from simpy import Environment, Resource
 from simpy.core import SimTime
@@ -31,11 +33,16 @@ class Dram:
         self._env = env
         self._res = Resource(env, capacity=channels)
         self._lat = gen_lat
+        self._service_latencies = []
 
     def read(self):
         with self._res.request() as read:
             yield read
-            yield self._env.timeout(self._lat())
+            lat = self._lat()
+            # lat = self.BASE_LATENCY
+            self._service_latencies.append(lat)
+            yield self._env.timeout(lat)
+            return lat
 
 
 # %%
@@ -50,20 +57,25 @@ class Cpu:
         self._id = id
         self._time = SECOND // freq
         self._latencies = []
+        self._intervals = []
         self._rng = rng
 
     def run(self, env: Environment):
         while True:
-            start_read = env.now
-            yield env.process(self._dram.read())
-            end_read = env.now
-            latency = end_read - start_read
+            latency = yield env.process(self._dram.read())
             self._latencies.append((self._id, latency))
-            yield env.timeout(self._rng.exponential(scale=self._time))
+            
+            interval = self._rng.exponential(scale=self._time)
+            self._intervals.append(interval)
+            yield env.timeout(interval)
 
     @property
     def latencies(self):
         return self._latencies
+
+    @property
+    def intervals(self):
+        return self._intervals
 
 
 # %%
@@ -101,4 +113,45 @@ lat_avg
 # %%
 
 tput_avg = len(latencies) / RUN_TIME
-tput_avg
+
+# %%
+
+def plot_dram_latency(service_latencies: list[float]):
+    """KDE of DRAM service latencies."""
+    x = np.linspace(min(service_latencies), max(service_latencies), 200)
+    kde = gaussian_kde(service_latencies)
+    fig, ax = plt.subplots()
+    ax.plot(x, kde(x))
+    ax.fill_between(x, kde(x), alpha=0.3)
+    ax.set_title("DRAM Latency Distribution")
+    ax.set_xlabel("Latency (sim ticks)")
+    ax.set_ylabel("Density")
+    ax.axvline(Dram.BASE_LATENCY, color="red", linestyle="--", label=f"mean={Dram.BASE_LATENCY}")
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+
+plot_dram_latency(dram._service_latencies)
+
+
+# %%
+
+def plot_cpu_request_intensity(cpus: list[Cpu]):
+    """KDE of CPU request inter-arrival intensities."""
+    fig, ax = plt.subplots()
+    for c in cpus:
+        intervals = np.array(c.intervals)
+        if len(intervals) < 2:
+            continue
+        x = np.linspace(intervals.min(), intervals.max(), 200)
+        kde = gaussian_kde(intervals)
+        ax.plot(x, kde(x), label=f"CPU {c._id}")
+        ax.fill_between(x, kde(x), alpha=0.2)
+    ax.set_title("CPU Request Intensity Distribution")
+    ax.set_xlabel("Inter-arrival time (sim ticks)")
+    ax.set_ylabel("Density")
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+    
+plot_cpu_request_intensity(cpus)
