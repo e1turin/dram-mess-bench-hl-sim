@@ -81,6 +81,7 @@ class Cpu:
 # %%
 
 def gen_lat():
+    return np.random.normal(loc=Dram.BASE_LATENCY)
     return np.random.exponential(scale=Dram.BASE_LATENCY)
 
 env = Environment()
@@ -155,3 +156,46 @@ def plot_cpu_request_intensity(cpus: list[Cpu]):
     plt.show()
     
 plot_cpu_request_intensity(cpus)
+
+# %%
+
+def run_simulation(n_cpu: int, run_time: float = SECOND // 1_000_000) -> tuple[float, float]:
+    """Run a simulation with *n_cpu* CPUs. Returns (avg_latency, throughput)."""
+    env = Environment()
+    dram = Dram(env, gen_lat)
+    cpus = [
+        Cpu(dram=dram, id=i, freq=Cpu.FREQ__HZ, rng=np.random.default_rng(i))
+        for i in range(n_cpu)
+    ]
+    use(env.process(c.run(env)) for c in cpus)
+    env.run(until=run_time)
+
+    latencies = []
+    use(latencies.extend(c.latencies) for c in cpus)
+
+    lat_avg = stats.mean(lat for _, lat in latencies)
+    tput = len(latencies) / run_time
+    return lat_avg, tput
+
+
+# %%
+
+cpu_counts = list(range(1, 17))
+results = {n: run_simulation(n) for n in cpu_counts}
+
+# %%
+
+def plot_latency_vs_throughput(results: dict[int, tuple[float, float]]):
+    """Latency vs throughput for varying CPU counts."""
+    fig, ax = plt.subplots()
+    for n_cpu, (lat, tput) in sorted(results.items()):
+        ax.plot(lat, tput, "o-", label=f"{n_cpu} CPUs")
+    ax.set_title("Latency vs Throughput")
+    ax.set_xlabel("Avg Latency (sim ticks)")
+    ax.set_ylabel("Throughput (req/tick)")
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+
+
+plot_latency_vs_throughput(results)
