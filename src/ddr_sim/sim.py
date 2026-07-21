@@ -1,9 +1,9 @@
 # %%
 
 import statistics as stats
+from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
 import numpy as np
 from simpy import Environment, Resource
 from simpy.core import SimTime
@@ -15,6 +15,7 @@ MS = 1000 * US
 SECOND = 1000 * MS
 
 N_CPU = 4
+RUN_TIME = SECOND // 1_000_000 
 
 # %%
 
@@ -27,23 +28,27 @@ def use(g):
 
 
 class Dram:
-    BASE_LATENCY = 10 * NS
+    BASE_LATENCY = 70 * NS # 65-75ns
 
     def __init__(self, env: Environment, gen_lat, channels: int = 1):
         self._env = env
         self._res = Resource(env, capacity=channels)
         self._lat = gen_lat
         self._service_latencies = []
+        self._queue_samples: list[tuple[float, int]] = []
 
     def read(self):
         with self._res.request() as read:
+            self._queue_samples.append((self._env.now, len(self._res.queue)))
             yield read
             lat = self._lat()
-            # lat = self.BASE_LATENCY
             self._service_latencies.append(lat)
             yield self._env.timeout(lat)
             return lat
 
+    @staticmethod
+    def gen_lat():
+        return np.random.normal(loc=Dram.BASE_LATENCY)
 
 # %%
 
@@ -51,118 +56,48 @@ class Dram:
 class Cpu:
     FREQ = 3.3  # GHz
     FREQ__HZ = FREQ * 1e9
+    N_INST_LOOP = 100
 
     def __init__(self, dram: Dram, id, freq: float, rng: np.random.Generator):
         self._dram = dram
         self._id = id
-        self._time = SECOND // freq
+        self._time = SECOND / freq * self.N_INST_LOOP
         self._latencies = []
-        self._intervals = []
         self._rng = rng
 
     def run(self, env: Environment):
         while True:
             latency = yield env.process(self._dram.read())
             self._latencies.append((self._id, latency))
-            
-            interval = self._rng.exponential(scale=self._time)
-            self._intervals.append(interval)
-            yield env.timeout(interval)
+
+            yield env.timeout(self._read_delay())
+
+    def _read_delay(self):
+        return self._rng.exponential(scale=self._time)
 
     @property
     def latencies(self):
         return self._latencies
 
-    @property
-    def intervals(self):
-        return self._intervals
-
 
 # %%
 
-def gen_lat():
-    return np.random.normal(loc=Dram.BASE_LATENCY)
-    return np.random.exponential(scale=Dram.BASE_LATENCY)
-
-env = Environment()
-dram = Dram(env, gen_lat)
-cpus = [
-    Cpu(
-        dram=dram,
-        id=i,
-        freq=Cpu.FREQ__HZ,
-        rng=np.random.default_rng(i),
-    )
-    for i in range(N_CPU)
-]
-use(env.process(c.run(env)) for c in cpus)
-
-# %%
-RUN_TIME = SECOND // 1_000_000 
-env.run(until=RUN_TIME)
-
-# %%
-
-latencies = []
-use(latencies.extend(c.latencies) for c in cpus)
-
-# %%
-
-lat_avg = stats.mean(lat for _, lat in latencies)
-lat_avg
-
-# %%
-
-tput_avg = len(latencies) / RUN_TIME
-
-# %%
-
-def plot_dram_latency(service_latencies: list[float]):
-    """KDE of DRAM service latencies."""
-    x = np.linspace(min(service_latencies), max(service_latencies), 200)
-    kde = gaussian_kde(service_latencies)
-    fig, ax = plt.subplots()
-    ax.plot(x, kde(x))
-    ax.fill_between(x, kde(x), alpha=0.3)
-    ax.set_title("DRAM Latency Distribution")
-    ax.set_xlabel("Latency (sim ticks)")
-    ax.set_ylabel("Density")
-    ax.axvline(Dram.BASE_LATENCY, color="red", linestyle="--", label=f"mean={Dram.BASE_LATENCY}")
-    ax.legend()
-    fig.tight_layout()
-    plt.show()
-
-plot_dram_latency(dram._service_latencies)
 
 
-# %%
+@dataclass
+class SimResult:
+    lat_avg: float
+    tput: float
+    queue_samples: list[tuple[float, int]]
+    service_latencies: list[float]
 
-def plot_cpu_request_intensity(cpus: list[Cpu]):
-    """KDE of CPU request inter-arrival intensities."""
-    fig, ax = plt.subplots()
-    for c in cpus:
-        intervals = np.array(c.intervals)
-        if len(intervals) < 2:
-            continue
-        x = np.linspace(intervals.min(), intervals.max(), 200)
-        kde = gaussian_kde(intervals)
-        ax.plot(x, kde(x), label=f"CPU {c._id}")
-        ax.fill_between(x, kde(x), alpha=0.2)
-    ax.set_title("CPU Request Intensity Distribution")
-    ax.set_xlabel("Inter-arrival time (sim ticks)")
-    ax.set_ylabel("Density")
-    ax.legend()
-    fig.tight_layout()
-    plt.show()
-    
-plot_cpu_request_intensity(cpus)
 
-# %%
-
-def run_simulation(n_cpu: int, run_time: float = SECOND // 1_000_000) -> tuple[float, float]:
-    """Run a simulation with *n_cpu* CPUs. Returns (avg_latency, throughput)."""
+def run_simulation(
+    n_cpu: int, run_time: float = SECOND // 1_000_000
+) -> SimResult:
+    """Run a simulation with *n_cpu* CPUs."""
     env = Environment()
-    dram = Dram(env, gen_lat)
+    dram = Dram(env, Dram.gen_lat)
     cpus = [
         Cpu(dram=dram, id=i, freq=Cpu.FREQ__HZ, rng=np.random.default_rng(i))
         for i in range(n_cpu)
@@ -175,25 +110,52 @@ def run_simulation(n_cpu: int, run_time: float = SECOND // 1_000_000) -> tuple[f
 
     lat_avg = stats.mean(lat for _, lat in latencies)
     tput = len(latencies) / run_time
-    return lat_avg, tput
+    return SimResult(
+        lat_avg=lat_avg,
+        tput=tput,
+        queue_samples=dram._queue_samples,
+        service_latencies=dram._service_latencies,
+    )
 
 
 # %%
 
 cpu_counts = list(range(1, 17))
-results = {n: run_simulation(n) for n in cpu_counts}
+results: dict[int, SimResult] = {n: run_simulation(n) for n in cpu_counts}
 
 # %%
 
-def plot_latency_vs_throughput(results: dict[int, tuple[float, float]]):
+def plot_max_queue_vs_cpus(results: dict[int, SimResult]):
+    """Max queue length vs CPU count."""
+    cpu_ns = sorted(results)
+    max_queues = [max(s for _, s in results[n].queue_samples) for n in cpu_ns]
+    fig, ax = plt.subplots()
+    ax.plot(cpu_ns, max_queues, "o-")
+    ax.set_title("Max DRAM Queue Length vs CPU Count")
+    ax.set_xlabel("Number of CPUs")
+    ax.set_ylabel("Max Queue Length")
+    fig.tight_layout()
+    plt.show()
+
+
+plot_max_queue_vs_cpus(results)
+
+
+
+# %%
+
+def plot_latency_vs_throughput(results: dict[int, SimResult]):
     """Latency vs throughput for varying CPU counts."""
     fig, ax = plt.subplots()
-    for n_cpu, (lat, tput) in sorted(results.items()):
-        ax.plot(lat, tput, "o-", label=f"{n_cpu} CPUs")
+    sorted_items = sorted(results.items())
+    tputs = [r.tput for _, r in sorted_items]
+    lats = [r.lat_avg for _, r in sorted_items]
+    ax.plot(tputs, lats, "o-")
+    for n_cpu, tput, lat in zip([n for n, _ in sorted_items], tputs, lats):
+        ax.annotate(str(n_cpu), (tput, lat), textcoords="offset points", xytext=(6, 6))
     ax.set_title("Latency vs Throughput")
-    ax.set_xlabel("Avg Latency (sim ticks)")
-    ax.set_ylabel("Throughput (req/tick)")
-    ax.legend()
+    ax.set_xlabel("Throughput (req/tick)")
+    ax.set_ylabel("Avg Latency (sim ticks)")
     fig.tight_layout()
     plt.show()
 
