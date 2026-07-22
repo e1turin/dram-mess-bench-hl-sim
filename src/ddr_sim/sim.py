@@ -38,8 +38,8 @@ class Dram:
         1
         # 2
     )
-    QUEUE_CAPACITY = 1000
-    QUEUE_CAPACITY_WIDTH_HALF = 0.15 * QUEUE_CAPACITY / 2
+    QUEUE_CAPACITY = 3000
+    QUEUE_CAPACITY_WIDTH_HALF = 0.20 * QUEUE_CAPACITY / 2
     QUEUE_CAPACITY_UPPER = QUEUE_CAPACITY + QUEUE_CAPACITY_WIDTH_HALF
     QUEUE_CAPACITY_LOWER = QUEUE_CAPACITY - QUEUE_CAPACITY_WIDTH_HALF
     UNDERFLOW_PENALTY = 0.9
@@ -101,7 +101,7 @@ class Dram:
 
     @staticmethod
     def gen_lat():
-        return Dram.BASE_LATENCY
+        # return Dram.BASE_LATENCY
         return np.random.poisson(lam=Dram.BASE_LATENCY) # like normal but limited by positive values
 
 # %%
