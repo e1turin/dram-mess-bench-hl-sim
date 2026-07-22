@@ -53,15 +53,29 @@ class Dram:
 
     @staticmethod
     def gen_lat():
+        return np.random.poisson(lam=Dram.BASE_LATENCY)
         return np.random.normal(loc=Dram.BASE_LATENCY)
 
 # %%
 
 
 class Cpu:
-    FREQ = 3.3  # GHz
+    FREQ = (
+        # 5
+        3.3  # GHz
+    )
     FREQ__HZ = FREQ * 1e9
-    N_INST_LOOP = 100000
+    CHANNELS = (
+        # 1
+        2
+    )
+    N_INST_LOOP = (
+        # 1000
+        # 500
+        350
+        # 200
+        # 100
+    )
 
     def __init__(self, dram: Dram, id, freq: float, rng: np.random.Generator):
         self._dram = dram
@@ -76,7 +90,7 @@ class Cpu:
             yield env.timeout(self._read_delay())
 
     def _read_delay(self):
-        return self._rng.normal(loc=self._time)
+        return self._rng.poisson(lam=self._time)
         return self._rng.exponential(scale=self._time)
 
 
@@ -94,9 +108,9 @@ class SimResult:
 def run_simulation(
     n_cpu: int, run_time: float = SECOND // 1_000
 ) -> SimResult:
-    """Run a simulation with *n_cpu* CPUs."""
+    print(f"Run a simulation with {n_cpu} CPUs.")
     env = Environment()
-    dram = Dram(env, Dram.gen_lat, channels=2)
+    dram = Dram(env, Dram.gen_lat, channels=Dram.CHANNELS)
     cpus = [
         Cpu(dram=dram, id=i, freq=Cpu.FREQ__HZ, rng=np.random.default_rng(i))
         for i in range(n_cpu)
@@ -116,7 +130,8 @@ def run_simulation(
 
 # %%
 
-cpu_counts = list(range(1, 17))
+# cpu_counts = list(range(1, 17)) + [32]
+cpu_counts = [1, 2, 4, 8, 12] #, 16, 20, 24, 28, 32]
 results: dict[int, SimResult] = {n: run_simulation(n) for n in cpu_counts}
 
 # %%
