@@ -38,6 +38,12 @@ class Dram:
         1
         # 2
     )
+    QUEUE_CAPACITY = 1000
+    QUEUE_CAPACITY_WIDTH_HALF = 0.15 * QUEUE_CAPACITY / 2
+    QUEUE_CAPACITY_UPPER = QUEUE_CAPACITY + QUEUE_CAPACITY_WIDTH_HALF
+    QUEUE_CAPACITY_LOWER = QUEUE_CAPACITY - QUEUE_CAPACITY_WIDTH_HALF
+    UNDERFLOW_PENALTY = 0.9
+    OVERFLOW_PENALTY = 1.1
 
     def __init__(self, env: Environment, gen_lat, channels: int = CHANNELS):
         self._env = env
@@ -50,15 +56,48 @@ class Dram:
     def read(self, cpu_id: int):
         with self._res.request() as req:
             read_begin = self._env.now
+            queue_length = len(self._res.queue)
             
-            self._max_queue = max(self._max_queue, len(self._res.queue))
+            self._max_queue = max(self._max_queue, queue_length)
             yield req
-            yield self._env.timeout(self._lat())
+            
+            yield self._env.timeout(self.calc_latency(queue_length))
             
             read_end = self._env.now
         
         lat = read_end - read_begin
         self._latencies.append((cpu_id, lat))
+
+    def calc_latency(self, queue_length):
+        # lat = self.calc_latency_const(queue_length)
+        # lat = self.calc_latency_degradation(queue_length)
+        lat = self.calc_latency_optimized(queue_length)
+        return lat
+
+    def calc_latency_const(self, queue_length):
+        lat = self._lat()
+        return lat
+        
+    def calc_latency_degradation(self, queue_length):
+        lat = self._lat()
+        if queue_length <= self.QUEUE_CAPACITY_LOWER:
+            lat *= self.UNDERFLOW_PENALTY
+        elif self.QUEUE_CAPACITY_LOWER < queue_length <= self.QUEUE_CAPACITY_UPPER:
+            pass
+        elif self.QUEUE_CAPACITY_UPPER < queue_length:
+            lat *= self.OVERFLOW_PENALTY
+        return lat
+
+    def calc_latency_optimized(self, queue_length):
+        lat = self._lat()
+        if queue_length <= self.QUEUE_CAPACITY_LOWER:
+            pass
+        elif self.QUEUE_CAPACITY_LOWER < queue_length <= self.QUEUE_CAPACITY_UPPER:
+            lat *= self.UNDERFLOW_PENALTY
+        elif self.QUEUE_CAPACITY_UPPER < queue_length:
+            lat *= self.OVERFLOW_PENALTY
+        return lat
+        
 
     @staticmethod
     def gen_lat():
@@ -139,7 +178,7 @@ def run_simulation(
 
 
 # cpu_counts = list(range(1, 17))
-cpu_counts = [1, 2, 3, 4, 6, 8, 12, 16, 20]
+cpu_counts = [1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20]
 with ThreadPool() as pool:
     rows = list(tqdm(pool.imap(run_simulation, cpu_counts), total=len(cpu_counts)))
 df = pd.DataFrame(rows)
