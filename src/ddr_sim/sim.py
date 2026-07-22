@@ -1,12 +1,14 @@
 # %%
 
 import statistics as stats
-from dataclasses import dataclass
+from multiprocessing.pool import ThreadPool
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from simpy import Environment, Resource
 from simpy.core import SimTime
+from tqdm import tqdm
 
 SIM_TIME_UNIT: SimTime = 10  # ticks
 NS = 1 * SIM_TIME_UNIT
@@ -28,9 +30,16 @@ def use(g):
 
 
 class Dram:
-    BASE_LATENCY = 70 * NS # 65-75ns
+    BASE_LATENCY = (
+        70 * NS # 65-75ns
+        # 90 * NS # 65-75ns
+    )
+    CHANNELS = (
+        1
+        # 2
+    )
 
-    def __init__(self, env: Environment, gen_lat, channels: int = 1):
+    def __init__(self, env: Environment, gen_lat, channels: int = CHANNELS):
         self._env = env
         self._res = Resource(env, capacity=channels)
         self._lat = gen_lat
@@ -53,35 +62,36 @@ class Dram:
 
     @staticmethod
     def gen_lat():
-        return np.random.poisson(lam=Dram.BASE_LATENCY)
-        return np.random.normal(loc=Dram.BASE_LATENCY)
+        return Dram.BASE_LATENCY
+        return np.random.poisson(lam=Dram.BASE_LATENCY) # like normal but limited by positive values
 
 # %%
 
 
 class Cpu:
     FREQ = (
-        # 5
-        3.3  # GHz
+        4
+        # 3.3  # GHz
     )
     FREQ__HZ = FREQ * 1e9
-    CHANNELS = (
-        # 1
-        2
-    )
     N_INST_LOOP = (
-        # 1000
+        1000
         # 500
-        350
+        # 350
         # 200
         # 100
     )
 
-    def __init__(self, dram: Dram, id, freq: float, rng: np.random.Generator):
+    def __init__(
+        self,
+        dram: Dram,
+        id,
+        rng: np.random.Generator,
+        freq: float = FREQ__HZ,
+    ):
         self._dram = dram
         self._id = id
         self._time = SECOND / freq * self.N_INST_LOOP
-        self._latencies = []
         self._rng = rng
 
     def run(self, env: Environment):
@@ -90,58 +100,80 @@ class Cpu:
             yield env.timeout(self._read_delay())
 
     def _read_delay(self):
-        return self._rng.poisson(lam=self._time)
-        return self._rng.exponential(scale=self._time)
+        # return self._time
+        return self._rng.poisson(lam=self._time) # like normal but limited by positive values
 
 
 # %%
-
-
-
-@dataclass
-class SimResult:
-    lat_avg: float
-    tput: float
-    max_queue: int
 
 
 def run_simulation(
-    n_cpu: int, run_time: float = SECOND // 1_000
-) -> SimResult:
-    print(f"Run a simulation with {n_cpu} CPUs.")
+    n_cpu: int, run_time: float = 1 * MS
+) -> dict:
+    """Run a simulation. Returns input params + results as a flat dict."""
     env = Environment()
-    dram = Dram(env, Dram.gen_lat, channels=Dram.CHANNELS)
+    dram = Dram(env, Dram.gen_lat)
     cpus = [
-        Cpu(dram=dram, id=i, freq=Cpu.FREQ__HZ, rng=np.random.default_rng(i))
+        Cpu(dram=dram, id=i, rng=np.random.default_rng(i))
         for i in range(n_cpu)
     ]
-    use(env.process(c.run(env)) for c in cpus)
+    for c in cpus:
+        env.process(c.run(env))
+        
     env.run(until=run_time)
 
     latencies = dram._latencies
-    lat_avg = stats.mean(lat for _, lat in latencies)
+    lat_avg = stats.mean(lat for _, lat in latencies) if latencies else 0.0
     tput = len(latencies) / run_time
-    return SimResult(
-        lat_avg=lat_avg,
-        tput=tput,
-        max_queue=dram._max_queue,
-    )
+    return {
+        "n_cpu": n_cpu,
+        "run_time": run_time,
+        "dram_channels": dram._res.capacity,
+        "lat_avg": lat_avg,
+        "tput": tput,
+        "max_queue": dram._max_queue,
+    }
 
 
 # %%
 
-# cpu_counts = list(range(1, 17)) + [32]
-cpu_counts = [1, 2, 4, 8, 12] #, 16, 20, 24, 28, 32]
-results: dict[int, SimResult] = {n: run_simulation(n) for n in cpu_counts}
+
+# cpu_counts = list(range(1, 17))
+cpu_counts = [1, 2, 3, 4, 6, 8, 12, 16, 20]
+with ThreadPool() as pool:
+    rows = list(tqdm(pool.imap(run_simulation, cpu_counts), total=len(cpu_counts)))
+df = pd.DataFrame(rows)
+df
 
 # %%
 
-def plot_max_queue_vs_cpus(results: dict[int, SimResult]):
-    """Max queue length vs CPU count."""
-    cpu_ns = sorted(results)
-    max_queues = [results[n].max_queue for n in cpu_ns]
+def plot_latency_vs_throughput(df: pd.DataFrame, yscale="linear"):
+    """Latency vs throughput for varying CPU counts."""
     fig, ax = plt.subplots()
-    ax.plot(cpu_ns, max_queues, "o-")
+    ax.plot(df["tput"], df["lat_avg"], "o-")
+    for _, row in df.iterrows():
+        ax.annotate(
+            str(int(row["n_cpu"])),
+            (row["tput"], row["lat_avg"]),
+            textcoords="offset points",
+            xytext=(8, -8),
+        )
+    ax.set_title("Latency vs Throughput")
+    ax.set_xlabel("Throughput (req/tick)")
+    ax.set_ylabel("Avg Latency (sim ticks)")
+    ax.set_yscale(yscale)
+    fig.tight_layout()
+    plt.show()
+
+
+plot_latency_vs_throughput(df) #, "log")
+
+# %%
+
+def plot_max_queue_vs_cpus(df: pd.DataFrame):
+    """Max queue length vs CPU count."""
+    fig, ax = plt.subplots()
+    ax.plot(df["n_cpu"], df["max_queue"], "o-")
     ax.set_title("Max DRAM Queue Length vs CPU Count")
     ax.set_xlabel("Number of CPUs")
     ax.set_ylabel("Max Queue Length")
@@ -149,26 +181,4 @@ def plot_max_queue_vs_cpus(results: dict[int, SimResult]):
     plt.show()
 
 
-plot_max_queue_vs_cpus(results)
-
-
-
-# %%
-
-def plot_latency_vs_throughput(results: dict[int, SimResult]):
-    """Latency vs throughput for varying CPU counts."""
-    fig, ax = plt.subplots()
-    sorted_items = sorted(results.items())
-    tputs = [r.tput for _, r in sorted_items]
-    lats = [r.lat_avg for _, r in sorted_items]
-    ax.plot(tputs, lats, "o-")
-    for n_cpu, tput, lat in zip([n for n, _ in sorted_items], tputs, lats):
-        ax.annotate(str(n_cpu), (tput, lat), textcoords="offset points", xytext=(8, -2))
-    ax.set_title("Latency vs Throughput")
-    ax.set_xlabel("Throughput (req/tick)")
-    ax.set_ylabel("Avg Latency (sim ticks)")
-    fig.tight_layout()
-    plt.show()
-
-
-plot_latency_vs_throughput(results)
+plot_max_queue_vs_cpus(df)
