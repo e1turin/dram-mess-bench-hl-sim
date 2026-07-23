@@ -178,7 +178,7 @@ def run_simulation(
 
 
 # cpu_counts = list(range(1, 17))
-cpu_counts = [1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20]
+cpu_counts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 20]
 with ThreadPool() as pool:
     rows = list(tqdm(pool.imap(run_simulation, cpu_counts), total=len(cpu_counts)))
 df = pd.DataFrame(rows)
@@ -189,7 +189,7 @@ df
 def plot_latency_vs_throughput(df: pd.DataFrame, yscale="linear"):
     """Latency vs throughput for varying CPU counts."""
     fig, ax = plt.subplots()
-    ax.plot(df["tput"], df["lat_avg"], "o-")
+    ax.plot(df["tput"] * US, df["lat_avg"] / US, "o-")
     for _, row in df.iterrows():
         ax.annotate(
             str(int(row["n_cpu"])),
@@ -198,8 +198,8 @@ def plot_latency_vs_throughput(df: pd.DataFrame, yscale="linear"):
             xytext=(8, -8),
         )
     ax.set_title("Latency vs Throughput")
-    ax.set_xlabel("Throughput (req/tick)")
-    ax.set_ylabel("Avg Latency (sim ticks)")
+    ax.set_xlabel("Throughput (req/us)")
+    ax.set_ylabel("Avg Latency (us)")
     ax.set_yscale(yscale)
     fig.tight_layout()
     plt.show()
