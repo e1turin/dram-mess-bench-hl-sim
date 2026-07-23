@@ -1,5 +1,5 @@
 [project]
-name = "ddr-sim"
+name = "dram_sim"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -15,9 +15,6 @@ dependencies = [
     "pandas>=3.0.3",
     "tqdm>=4.69.0",
 ]
-
-[project.scripts]
-ddr-sim = "ddr_sim:main"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]
