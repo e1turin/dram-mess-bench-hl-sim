@@ -88,7 +88,7 @@ PRESETS = {
             base_latency=90 * NS,
         )
     ),
-    "slower-cpu": HyperParameters(cpu=CpuHyperParameters(frequency=3.3 * GHZ)),
+    "slow-cpu": HyperParameters(cpu=CpuHyperParameters(frequency=3.3 * GHZ)),
     "heavy-bench": HyperParameters(cpu=CpuHyperParameters(inst_per_loop=350)),
 }
 
@@ -204,7 +204,7 @@ class Dram:
 
     @staticmethod
     def make_lat_gen(base: SimTime, rng: np.random.Generator):
-        # use poisson because it is "like normal" but limited to positive values
+        # use poisson because it is "like normal" but limited with positive values
         return lambda: rng.poisson(lam=base)
 
 
@@ -231,7 +231,7 @@ class Cpu:
             yield env.timeout(self._read_delay())
 
     def _read_delay(self):
-        # poisson is like normal but limited by positive values
+        # use poisson because it is "like normal" but limited with positive values
         return self._rng.poisson(lam=self._time)
 
 
@@ -295,11 +295,13 @@ df
 def plot_latency_vs_bandwidth(df: pd.DataFrame, yscale="linear"):
     """Latency vs bandwidth for varying CPU counts."""
     fig, ax = plt.subplots()
-    ax.plot(df["tput"] * US, df["lat_avg"] / US, "o-")
-    for _, row in df.iterrows():
+    tputs = df["tput"] * US
+    lats = df["lat_avg"] / US
+    ax.plot(tputs, lats, "o-")
+    for i, row in df.iterrows():
         ax.annotate(
             str(int(row["n_cpu"])),
-            (row["tput"], row["lat_avg"]),
+            (tputs[i], lats[i]),
             textcoords="offset points",
             xytext=(8, -8),
         )
