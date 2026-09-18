@@ -25,6 +25,7 @@ def _():
     return (
         Callable,
         Environment,
+        Path,
         Resource,
         Sequence,
         SimTime,
@@ -36,7 +37,6 @@ def _():
         mo,
         np,
         pd,
-        Path,
         plt,
         re,
         stats,
@@ -51,6 +51,22 @@ def _(mo):
 
     Draw a latency multiplier as a function of DRAM queue depth, then run a sweep
     over CPU counts. The drawn curve multiplies a gamma-distributed base latency.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Environment
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### System Setup
     """)
     return
 
@@ -85,214 +101,6 @@ def _(NS, SimTime, dataclass, field):
         cpu: CpuParameters = field(default_factory=CpuParameters)
 
     return CpuParameters, DramParameters, Parameters
-
-
-@app.cell
-def _(anywidget, traitlets):
-    class HandDrawnCurve(anywidget.AnyWidget):
-        """Canvas widget that synchronizes hand-drawn strokes to Python."""
-
-        _esm = r"""
-        function render({ model, el }) {
-          const canvas = document.createElement("canvas");
-          canvas.width = 800; canvas.height = 360;
-          const clear = document.createElement("button"); clear.textContent = "Clear curve";
-          const root = document.createElement("div"); root.className = "curve";
-          root.append(canvas, clear); el.appendChild(root);
-          const ctx = canvas.getContext("2d"); let drawing = false; let stroke = [];
-          const pad = { left: 72, right: 16, top: 18, bottom: 50 };
-          const plotWidth = () => canvas.width - pad.left - pad.right;
-          const plotHeight = () => canvas.height - pad.top - pad.bottom;
-          const xp = x => pad.left + (x - model.get("x_min")) / (model.get("x_max") - model.get("x_min")) * plotWidth();
-          const yp = y => canvas.height - pad.bottom - (y - model.get("y_min")) / (model.get("y_max") - model.get("y_min")) * plotHeight();
-          const point = event => {
-            const rect = canvas.getBoundingClientRect();
-            const px = Math.min(Math.max(event.clientX - rect.left, pad.left), canvas.width - pad.right);
-            const py = Math.min(Math.max(event.clientY - rect.top, pad.top), canvas.height - pad.bottom);
-            return [
-              (px - pad.left) / plotWidth() * (model.get("x_max") - model.get("x_min")) + model.get("x_min"),
-              (canvas.height - pad.bottom - py) / plotHeight() * (model.get("y_max") - model.get("y_min")) + model.get("y_min"),
-            ];
-          };
-          function redraw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1;
-            const xmin = model.get("x_min"), xmax = model.get("x_max"), ymin = model.get("y_min"), ymax = model.get("y_max");
-            const xStep = (xmax - xmin) / 8, yStep = (ymax - ymin) / 6;
-            ctx.font = "12px system-ui"; ctx.fillStyle = "#475569"; ctx.textAlign = "center";
-            for (let index = 0; index <= 8; index++) { const x = xmin + index * xStep; const px = xp(x); ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, canvas.height - pad.bottom); ctx.stroke(); ctx.fillText(x.toPrecision(3), px, canvas.height - pad.bottom + 18); }
-            ctx.textAlign = "right";
-            for (let index = 0; index <= 6; index++) { const y = ymin + index * yStep; const py = yp(y); ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(canvas.width - pad.right, py); ctx.stroke(); ctx.fillText(y.toPrecision(3), pad.left - 8, py + 4); }
-            ctx.strokeStyle = "#64748b"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, canvas.height - pad.bottom); ctx.lineTo(canvas.width - pad.right, canvas.height - pad.bottom); ctx.stroke();
-            ctx.fillStyle = "#0f172a"; ctx.textAlign = "center"; ctx.fillText("Queue depth (requests)", pad.left + plotWidth() / 2, canvas.height - 10);
-            ctx.save(); ctx.translate(16, pad.top + plotHeight() / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Latency multiplier", 0, 0); ctx.restore();
-            ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.lineCap = "round";
-            for (const saved of model.get("strokes") || []) { if (!saved.length) continue; ctx.beginPath(); ctx.moveTo(xp(saved[0][0]), yp(saved[0][1])); for (const [x, y] of saved.slice(1)) ctx.lineTo(xp(x), yp(y)); ctx.stroke(); }
-          }
-          canvas.addEventListener("pointerdown", event => { drawing = true; canvas.setPointerCapture(event.pointerId); stroke = [point(event)]; model.set("strokes", [...(model.get("strokes") || []), stroke]); model.save_changes(); redraw(); });
-          canvas.addEventListener("pointermove", event => { if (!drawing) return; stroke.push(point(event)); const strokes = [...(model.get("strokes") || [])]; strokes[strokes.length - 1] = stroke; model.set("strokes", strokes); model.save_changes(); redraw(); });
-          const stop = () => { drawing = false; stroke = []; }; canvas.addEventListener("pointerup", stop); canvas.addEventListener("pointercancel", stop);
-          clear.addEventListener("click", () => { model.set("strokes", []); model.save_changes(); redraw(); });
-          model.on("change:strokes change:x_min change:x_max change:y_min change:y_max", redraw); redraw();
-        }
-        export default { render };
-        """
-        _css = ".curve { display:grid; gap:8px; width:fit-content } .curve canvas { border:1px solid #cbd5e1; background:white; cursor:crosshair; touch-action:none } .curve button { width:fit-content; padding:4px 10px }"
-        x_min = traitlets.Float(0.0).tag(sync=True)
-        x_max = traitlets.Float(3_000.0).tag(sync=True)
-        y_min = traitlets.Float(0.1).tag(sync=True)
-        y_max = traitlets.Float(3.0).tag(sync=True)
-        strokes = traitlets.List(default_value=[]).tag(sync=True)
-
-    return (HandDrawnCurve,)
-
-
-@app.cell
-def _(mo):
-    base_latency_input = mo.ui.slider(
-        20, 200, value=70, step=5, label="Base DRAM latency (ns)"
-    )
-    channel_input = mo.ui.slider(1, 8, value=1, step=1, label="DRAM channels")
-    queue_min_input = mo.ui.number(value=0, step=100, label="Queue-depth x minimum")
-    queue_max_input = mo.ui.number(value=3_000, step=100, label="Queue-depth x maximum")
-    multiplier_min_input = mo.ui.number(
-        value=0.1, step=0.1, label="Latency multiplier y minimum"
-    )
-    multiplier_max_input = mo.ui.number(
-        value=3.0, step=0.1, label="Latency multiplier y maximum"
-    )
-    frequency_input = mo.ui.slider(
-        1.0, 6.0, value=4.0, step=0.1, label="CPU frequency (GHz)"
-    )
-    instructions_input = mo.ui.slider(
-        100, 5_000, value=1_000, step=50, label="Instructions per loop"
-    )
-    runtime_input = mo.ui.slider(
-        10, 10_000, value=1_000, step=10, label="Simulation duration (µs)"
-    )
-    simulation_name_input = mo.ui.text(value="dram-mess", label="Simulation name")
-    cpu_counts_input = mo.ui.text(value="1,2,3,4,5,6,8,10,12,16,20", label="CPU counts")
-    return (
-        base_latency_input,
-        channel_input,
-        cpu_counts_input,
-        frequency_input,
-        instructions_input,
-        multiplier_max_input,
-        multiplier_min_input,
-        queue_max_input,
-        queue_min_input,
-        runtime_input,
-        simulation_name_input,
-    )
-
-
-@app.cell
-def _(
-    HandDrawnCurve,
-    mo,
-    multiplier_max_input,
-    multiplier_min_input,
-    queue_max_input,
-    queue_min_input,
-):
-    curve_x_min = float(queue_min_input.value or 0)
-    curve_x_max = max(float(queue_max_input.value or curve_x_min + 1), curve_x_min + 1)
-    curve_y_min = float(multiplier_min_input.value or 0)
-    curve_y_max = max(
-        float(multiplier_max_input.value or curve_y_min + 0.1), curve_y_min + 0.1
-    )
-    curve_model = HandDrawnCurve(
-        x_min=curve_x_min, x_max=curve_x_max, y_min=curve_y_min, y_max=curve_y_max
-    )
-    curve_widget = mo.ui.anywidget(curve_model)
-    return curve_model, curve_widget
-
-
-@app.cell(hide_code=True)
-def _(
-    base_latency_input,
-    channel_input,
-    cpu_counts_input,
-    curve_widget,
-    frequency_input,
-    instructions_input,
-    mo,
-    multiplier_max_input,
-    multiplier_min_input,
-    queue_max_input,
-    queue_min_input,
-    runtime_input,
-    simulation_name_input,
-):
-    mo.vstack(
-        [
-            mo.md("## Configure and draw"),
-            mo.hstack([base_latency_input, channel_input, frequency_input]),
-            mo.hstack([instructions_input, runtime_input, cpu_counts_input]),
-            simulation_name_input,
-            mo.md(
-                "### Drawing range\nSet the axis bounds before drawing; changing a bound creates a fresh canvas."
-            ),
-            mo.hstack([queue_min_input, queue_max_input]),
-            mo.hstack([multiplier_min_input, multiplier_max_input]),
-            curve_widget,
-        ]
-    )
-    return
-
-
-@app.cell
-def _(Sequence, np):
-    def normalized_curve(
-        strokes: Sequence[Sequence[Sequence[float]]],
-    ) -> tuple[np.ndarray, np.ndarray]:
-        valid_strokes = [stroke for stroke in strokes if len(stroke) >= 2]
-        if not valid_strokes:
-            return np.array([], dtype=float), np.array([], dtype=float)
-        samples = np.asarray(valid_strokes[-1], dtype=float)
-        ordered = samples[np.argsort(samples[:, 0], kind="stable")]
-        curve_x, bucket = np.unique(ordered[:, 0], return_inverse=True)
-        curve_y = np.zeros_like(curve_x)
-        np.add.at(curve_y, bucket, ordered[:, 1])
-        return curve_x, curve_y / np.bincount(bucket)
-
-    return (normalized_curve,)
-
-
-@app.cell
-def _(curve_model, normalized_curve, np):
-    drawn_x, drawn_y = normalized_curve(curve_model.strokes)
-    preview_x = (
-        np.linspace(drawn_x.min(), drawn_x.max(), 400) if drawn_x.size else np.array([])
-    )
-    preview_y = np.interp(preview_x, drawn_x, drawn_y) if drawn_x.size else np.array([])
-    return drawn_x, drawn_y, preview_x, preview_y
-
-
-@app.cell
-def _(drawn_x, drawn_y, plt, preview_x, preview_y):
-    curve_figure, curve_axis = plt.subplots(figsize=(8, 3))
-    if drawn_x.size:
-        curve_axis.plot(drawn_x, drawn_y, ".", alpha=0.35, label="drawn samples")
-        curve_axis.plot(preview_x, preview_y, label="interpolated multiplier")
-        curve_axis.legend()
-    else:
-        curve_axis.text(
-            0.5,
-            0.5,
-            "Draw a curve to preview it",
-            transform=curve_axis.transAxes,
-            ha="center",
-        )
-    curve_axis.set(
-        xlabel="Queue depth (requests)",
-        ylabel="Latency multiplier",
-        title="Latency curve",
-    )
-    curve_axis.grid()
-    curve_figure.tight_layout()
-    curve_figure
-    return
 
 
 @app.cell
@@ -356,14 +164,247 @@ def _(Callable, Environment, Parameters, Resource, SECOND, SimTime, np, stats):
     return (simulate,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Latency-Capacity Curve Setup
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(anywidget, traitlets):
+    class HandDrawnCurve(anywidget.AnyWidget):
+        """Canvas widget that synchronizes hand-drawn strokes to Python."""
+
+        _esm = r"""
+        function render({ model, el }) {
+          const canvas = document.createElement("canvas");
+          canvas.width = 800; canvas.height = 360;
+          const clear = document.createElement("button"); clear.textContent = "Clear curve";
+          const root = document.createElement("div"); root.className = "curve";
+          root.append(canvas, clear); el.appendChild(root);
+          const ctx = canvas.getContext("2d"); let drawing = false; let stroke = [];
+          const pad = { left: 72, right: 16, top: 18, bottom: 50 };
+          const plotWidth = () => canvas.width - pad.left - pad.right;
+          const plotHeight = () => canvas.height - pad.top - pad.bottom;
+          const xp = x => pad.left + (x - model.get("x_min")) / (model.get("x_max") - model.get("x_min")) * plotWidth();
+          const yp = y => canvas.height - pad.bottom - (y - model.get("y_min")) / (model.get("y_max") - model.get("y_min")) * plotHeight();
+          const point = event => {
+            const rect = canvas.getBoundingClientRect();
+            const px = Math.min(Math.max(event.clientX - rect.left, pad.left), canvas.width - pad.right);
+            const py = Math.min(Math.max(event.clientY - rect.top, pad.top), canvas.height - pad.bottom);
+            return [
+              (px - pad.left) / plotWidth() * (model.get("x_max") - model.get("x_min")) + model.get("x_min"),
+              (canvas.height - pad.bottom - py) / plotHeight() * (model.get("y_max") - model.get("y_min")) + model.get("y_min"),
+            ];
+          };
+          function redraw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1;
+            const xmin = model.get("x_min"), xmax = model.get("x_max"), ymin = model.get("y_min"), ymax = model.get("y_max");
+            const xStep = (xmax - xmin) / 8, yStep = (ymax - ymin) / 6;
+            ctx.font = "12px system-ui"; ctx.fillStyle = "#475569"; ctx.textAlign = "center";
+            for (let index = 0; index <= 8; index++) { const x = xmin + index * xStep; const px = xp(x); ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, canvas.height - pad.bottom); ctx.stroke(); ctx.fillText(x.toPrecision(3), px, canvas.height - pad.bottom + 18); }
+            ctx.textAlign = "right";
+            for (let index = 0; index <= 6; index++) { const y = ymin + index * yStep; const py = yp(y); ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(canvas.width - pad.right, py); ctx.stroke(); ctx.fillText(y.toPrecision(3), pad.left - 8, py + 4); }
+            ctx.strokeStyle = "#64748b"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, canvas.height - pad.bottom); ctx.lineTo(canvas.width - pad.right, canvas.height - pad.bottom); ctx.stroke();
+            ctx.fillStyle = "#0f172a"; ctx.textAlign = "center"; ctx.fillText("Queue depth (requests)", pad.left + plotWidth() / 2, canvas.height - 10);
+            ctx.save(); ctx.translate(16, pad.top + plotHeight() / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Latency multiplier", 0, 0); ctx.restore();
+            ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.lineCap = "round";
+            for (const saved of model.get("strokes") || []) { if (!saved.length) continue; ctx.beginPath(); ctx.moveTo(xp(saved[0][0]), yp(saved[0][1])); for (const [x, y] of saved.slice(1)) ctx.lineTo(xp(x), yp(y)); ctx.stroke(); }
+          }
+          canvas.addEventListener("pointerdown", event => { drawing = true; canvas.setPointerCapture(event.pointerId); stroke = [point(event)]; model.set("strokes", [...(model.get("strokes") || []), stroke]); model.save_changes(); redraw(); });
+          canvas.addEventListener("pointermove", event => { if (!drawing) return; stroke.push(point(event)); const strokes = [...(model.get("strokes") || [])]; strokes[strokes.length - 1] = stroke; model.set("strokes", strokes); model.save_changes(); redraw(); });
+          const stop = () => { drawing = false; stroke = []; }; canvas.addEventListener("pointerup", stop); canvas.addEventListener("pointercancel", stop);
+          clear.addEventListener("click", () => { model.set("strokes", []); model.save_changes(); redraw(); });
+          model.on("change:strokes change:x_min change:x_max change:y_min change:y_max", redraw); redraw();
+        }
+        export default { render };
+        """
+        _css = ".curve { display:grid; gap:8px; width:fit-content } .curve canvas { border:1px solid #cbd5e1; background:white; cursor:crosshair; touch-action:none } .curve button { width:fit-content; padding:4px 10px }"
+        x_min = traitlets.Float(0.0).tag(sync=True)
+        x_max = traitlets.Float(3_000.0).tag(sync=True)
+        y_min = traitlets.Float(0.1).tag(sync=True)
+        y_max = traitlets.Float(3.0).tag(sync=True)
+        strokes = traitlets.List(default_value=[]).tag(sync=True)
+
+    return (HandDrawnCurve,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    base_latency_input = mo.ui.slider(
+        20, 200, value=70, step=5, label="Base DRAM latency (ns)"
+    )
+    channel_input = mo.ui.slider(1, 8, value=1, step=1, label="DRAM channels")
+    queue_min_input = mo.ui.number(value=0, step=100, label="Queue-depth x minimum")
+    queue_max_input = mo.ui.number(value=3_000, step=100, label="Queue-depth x maximum")
+    multiplier_min_input = mo.ui.number(
+        value=0.1, step=0.1, label="Latency multiplier y minimum"
+    )
+    multiplier_max_input = mo.ui.number(
+        value=3.0, step=0.1, label="Latency multiplier y maximum"
+    )
+    frequency_input = mo.ui.slider(
+        1.0, 6.0, value=4.0, step=0.1, label="CPU frequency (GHz)"
+    )
+    instructions_input = mo.ui.slider(
+        100, 5_000, value=1_000, step=50, label="Instructions per loop"
+    )
+    runtime_input = mo.ui.slider(
+        10, 10_000, value=1_000, step=10, label="Simulation duration (µs)"
+    )
+    simulation_name_input = mo.ui.text(value="dram-mess", label="Simulation name")
+    cpu_counts_input = mo.ui.text(value="1,2,3,4,5,6,8,10,12,16,20", label="CPU counts")
+    return (
+        base_latency_input,
+        channel_input,
+        cpu_counts_input,
+        frequency_input,
+        instructions_input,
+        multiplier_max_input,
+        multiplier_min_input,
+        queue_max_input,
+        queue_min_input,
+        runtime_input,
+        simulation_name_input,
+    )
+
+
+@app.cell(hide_code=True)
+def _(
+    multiplier_max_input,
+    multiplier_min_input,
+    queue_max_input,
+    queue_min_input,
+):
+    curve_x_min = float(queue_min_input.value or 0)
+    curve_x_max = max(float(queue_max_input.value or curve_x_min + 1), curve_x_min + 1)
+    curve_y_min = float(multiplier_min_input.value or 0)
+    curve_y_max = max(
+        float(multiplier_max_input.value or curve_y_min + 0.1), curve_y_min + 0.1
+    )
+    return curve_x_max, curve_x_min, curve_y_max, curve_y_min
+
+
+@app.cell(hide_code=True)
+def _(
+    base_latency_input,
+    channel_input,
+    cpu_counts_input,
+    frequency_input,
+    instructions_input,
+    mo,
+    multiplier_max_input,
+    multiplier_min_input,
+    queue_max_input,
+    queue_min_input,
+    runtime_input,
+    simulation_name_input,
+):
+    mo.vstack(
+        [
+            mo.md("#### Configure and draw"),
+            mo.hstack([base_latency_input, channel_input, frequency_input]),
+            mo.hstack([instructions_input, runtime_input, cpu_counts_input]),
+            simulation_name_input,
+            mo.md(
+                "#### Drawing range\nSet the axis bounds before drawing; changing a bound creates a fresh canvas."
+            ),
+            mo.hstack([queue_min_input, queue_max_input]),
+            mo.hstack([multiplier_min_input, multiplier_max_input]),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(HandDrawnCurve, curve_x_max, curve_x_min, curve_y_max, curve_y_min):
+    curve_model = HandDrawnCurve(
+        x_min=curve_x_min, x_max=curve_x_max, y_min=curve_y_min, y_max=curve_y_max
+    )
+    return (curve_model,)
+
+
+@app.cell(hide_code=True)
+def _(Sequence, np):
+    def normalized_curve(
+        strokes: Sequence[Sequence[Sequence[float]]],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        valid_strokes = [stroke for stroke in strokes if len(stroke) >= 2]
+        if not valid_strokes:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        samples = np.asarray(valid_strokes[-1], dtype=float)
+        ordered = samples[np.argsort(samples[:, 0], kind="stable")]
+        curve_x, bucket = np.unique(ordered[:, 0], return_inverse=True)
+        curve_y = np.zeros_like(curve_x)
+        np.add.at(curve_y, bucket, ordered[:, 1])
+        return curve_x, curve_y / np.bincount(bucket)
+
+    return (normalized_curve,)
+
+
+@app.cell(hide_code=True)
+def _(curve_model, mo):
+    curve_widget = mo.ui.anywidget(curve_model)
+    curve_widget
+    return
+
+
 @app.cell
+def _(curve_model, normalized_curve, np):
+    drawn_x, drawn_y = normalized_curve(curve_model.strokes)
+    preview_x = (
+        np.linspace(drawn_x.min(), drawn_x.max(), 400) if drawn_x.size else np.array([])
+    )
+    preview_y = np.interp(preview_x, drawn_x, drawn_y) if drawn_x.size else np.array([])
+    return drawn_x, drawn_y, preview_x, preview_y
+
+
+@app.cell(hide_code=True)
+def _(drawn_x, drawn_y, plt, preview_x, preview_y):
+
+
+    curve_figure, curve_axis = plt.subplots(figsize=(8, 3))
+    if drawn_x.size:
+        curve_axis.plot(drawn_x, drawn_y, ".", alpha=0.35, label="drawn samples")
+        curve_axis.plot(preview_x, preview_y, label="interpolated multiplier")
+        curve_axis.legend()
+    else:
+        curve_axis.text(
+            0.5,
+            0.5,
+            "Draw a curve to preview it",
+            transform=curve_axis.transAxes,
+            ha="center",
+        )
+    curve_axis.set(
+        xlabel="Queue depth (requests)",
+        ylabel="Latency multiplier",
+        title="Latency curve",
+    )
+    curve_axis.grid()
+    curve_figure.tight_layout()
+    curve_figure
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Run Simulation
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo):
     run_button = mo.ui.run_button(label="Run simulation", kind="success")
     run_button
     return (run_button,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     CpuParameters,
     DramParameters,
@@ -376,47 +417,56 @@ def _(
     drawn_y,
     frequency_input,
     instructions_input,
+    mo,
     np,
     pd,
     run_button,
     runtime_input,
     simulate,
 ):
-    run_button.value
-    requested_cpu_counts = [
-        int(item.strip()) for item in cpu_counts_input.value.split(",") if item.strip()
-    ]
-    active_parameters = Parameters(
-        running_time=runtime_input.value * 1_000 * NS,
-        dram=DramParameters(
-            base_latency=base_latency_input.value * NS, channels=channel_input.value
-        ),
-        cpu=CpuParameters(
-            frequency=frequency_input.value * 1_000_000_000,
-            instructions_per_loop=instructions_input.value,
-        ),
-    )
-    latency_rng = np.random.default_rng(0)
-
-    def hand_drawn_latency(queue_depth: int) -> float:
-        multiplier = (
-            float(np.interp(queue_depth, drawn_x, drawn_y)) if drawn_x.size else 1.0
-        )
-        return float(
-            latency_rng.gamma(shape=1.5, scale=active_parameters.dram.base_latency)
-            * max(multiplier, 0.01)
-        )
-
-    result_table = pd.DataFrame(
-        [
-            simulate(cpu_count, active_parameters, hand_drawn_latency)
-            for cpu_count in requested_cpu_counts
+    if not run_button.value:
+        run_status = mo.md("Press run simulation button")
+    else:
+        requested_cpu_counts = [
+            int(item.strip()) for item in cpu_counts_input.value.split(",") if item.strip()
         ]
-    )
+        active_parameters = Parameters(
+            running_time=runtime_input.value * 1_000 * NS,
+            dram=DramParameters(
+                base_latency=base_latency_input.value * NS, channels=channel_input.value
+            ),
+            cpu=CpuParameters(
+                frequency=frequency_input.value * 1_000_000_000,
+                instructions_per_loop=instructions_input.value,
+            ),
+        )
+        latency_rng = np.random.default_rng(0)
+
+        def hand_drawn_latency(queue_depth: int) -> float:
+            multiplier = (
+                float(np.interp(queue_depth, drawn_x, drawn_y)) if drawn_x.size else 1.0
+            )
+            return float(
+                latency_rng.gamma(shape=1.5, scale=active_parameters.dram.base_latency)
+                * max(multiplier, 0.01)
+            )
+
+        result_table = pd.DataFrame(
+            [
+                simulate(cpu_count, active_parameters, hand_drawn_latency)
+                for cpu_count in requested_cpu_counts
+            ]
+        )
+        run_status = mo.callout(
+            f"Simulation complete",
+            kind="success",
+        )
+
+    run_status
     return (result_table,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(US, plt, result_table):
     results_figure, (latency_axis, queue_axis) = plt.subplots(1, 2, figsize=(10, 3.5))
     bandwidth = result_table["tput"] * US
@@ -445,20 +495,20 @@ def _(US, plt, result_table):
     return (results_figure,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, result_table):
     mo.vstack([mo.md("## Results"), result_table])
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     save_results_button = mo.ui.run_button(label="Save plots and configuration")
     save_results_button
     return (save_results_button,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     Path,
     base_latency_input,
