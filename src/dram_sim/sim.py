@@ -46,12 +46,41 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md("""
-    # DRAM MESS high-level simulation
+    mo.md(r"""
+    # DRAM MESS Benchmark High-Level Simulation
 
-    Draw absolute DRAM latency as a function of queue depth, then run a sweep
-    over CPU counts. Curve values are interpreted directly as nanoseconds.
+    Reference article:
+    - https://arxiv.org/html/2405.10170v1
+
+    **Hypothesis**: weird throughput-latency curve hook can be modeled with tricky DRAM latency dependency on transactions queue lenght, the hook-form is result of internal optimizations.
+
+    Experiment uses queue models of hardware system.
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    resource_directory = mo.notebook_location() / "resources"
+    return (resource_directory,)
+
+
+@app.cell(hide_code=True)
+def _(mo, resource_directory):
+    mo.image(
+                src=str(resource_directory / "experiment-model.png"),
+                alt="DRAM experiment model",
+                vmax=100
+            )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo, resource_directory):
+    mo.image(
+                src=str(resource_directory / "DRAM-latency-hypothesis.png"),
+                alt="DRAM latency hypothesis",
+            )
     return
 
 
@@ -59,6 +88,8 @@ def _(mo):
 def _(mo):
     mo.md(r"""
     ## Environment
+
+    Experiment evironment configuration
     """)
     return
 
