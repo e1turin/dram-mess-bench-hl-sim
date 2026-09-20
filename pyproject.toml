@@ -8,6 +8,8 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "anywidget>=0.9",
+    "marimo>=0.19",
     "numpy>=2.0",
     "matplotlib>=3.9",
     "simpy>=4.1.2",
