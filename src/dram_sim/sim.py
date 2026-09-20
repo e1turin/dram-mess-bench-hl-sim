@@ -119,6 +119,7 @@ def _(Callable, Environment, Parameters, Resource, SECOND, SimTime, np, stats):
             )
             self.latencies: list[float] = []
             self.max_queue = 0
+            self.time_series: list[dict[str, float]] = []
 
         def read(self):
             with self.resource.request() as request:
@@ -142,9 +143,27 @@ def _(Callable, Environment, Parameters, Resource, SECOND, SimTime, np, stats):
 
     def simulate(
         cpu_count: int, params: Parameters, latency_calculator: Callable[[int], SimTime]
-    ) -> dict[str, float]:
+    ) -> tuple[dict[str, float], list[dict[str, float]]]:
         sim_env = Environment()
         sim_dram = DramDevice(sim_env, latency_calculator, params.dram.channels)
+
+        def sample_metrics():
+            sample_interval = max(params.running_time / 200, 1)
+            while True:
+                sim_dram.time_series.append(
+                    {
+                        "time": float(sim_env.now),
+                        "lat_avg": (
+                            stats.mean(sim_dram.latencies)
+                            if sim_dram.latencies
+                            else float("nan")
+                        ),
+                        "queue_size": len(sim_dram.resource.queue),
+                    }
+                )
+                yield sim_env.timeout(sample_interval)
+
+        sim_env.process(sample_metrics())
         for cpu_number in range(cpu_count):
             sim_env.process(
                 CpuSource(
@@ -154,12 +173,14 @@ def _(Callable, Environment, Parameters, Resource, SECOND, SimTime, np, stats):
                 ).run(sim_env)
             )
         sim_env.run(until=params.running_time)
-        return {
+        summary = {
             "n_cpu": cpu_count,
             "lat_avg": stats.mean(sim_dram.latencies) if sim_dram.latencies else 0.0,
             "tput": len(sim_dram.latencies) / params.running_time,
             "max_queue": sim_dram.max_queue,
         }
+        time_series = [dict(sample, n_cpu=cpu_count) for sample in sim_dram.time_series]
+        return summary, time_series
 
     return (simulate,)
 
@@ -449,6 +470,10 @@ def _(
     runtime_input,
     simulate,
 ):
+    result_table = pd.DataFrame(columns=["n_cpu", "lat_avg", "tput", "max_queue"])
+    time_series_table = pd.DataFrame(
+        columns=["time", "lat_avg", "queue_size", "n_cpu"]
+    )
     if not run_button.value:
         run_status = mo.md("Press run simulation button")
     else:
@@ -476,24 +501,30 @@ def _(
                 * max(multiplier, 0.01)
             )
 
-        result_table = pd.DataFrame(
-            [
-                simulate(cpu_count, active_parameters, hand_drawn_latency)
-                for cpu_count in requested_cpu_counts
-            ]
+        simulation_results = [
+            simulate(cpu_count, active_parameters, hand_drawn_latency)
+            for cpu_count in requested_cpu_counts
+        ]
+        result_table = pd.DataFrame([summary for summary, _trace in simulation_results])
+        time_series_table = pd.DataFrame(
+            sample
+            for _summary, trace in simulation_results
+            for sample in trace
         )
         run_status = mo.callout(
-            f"Simulation complete",
+            "Simulation complete",
             kind="success",
         )
 
     run_status
-    return (result_table,)
+    return result_table, time_series_table
 
 
 @app.cell(hide_code=True)
-def _(US, plt, result_table):
-    results_figure, (latency_axis, queue_axis) = plt.subplots(1, 2, figsize=(10, 3.5))
+def _(US, plt, result_table, time_series_table):
+    results_figure, result_axes = plt.subplots(2, 2, figsize=(11, 7))
+    latency_axis, queue_axis = result_axes[0]
+    latency_time_axis, queue_time_axis = result_axes[1]
     bandwidth = result_table["tput"] * US
     latency = result_table["lat_avg"] / US
     latency_axis.plot(bandwidth, latency, "o-")
@@ -513,7 +544,32 @@ def _(US, plt, result_table):
     queue_axis.set(
         xlabel="CPU count", ylabel="Maximum queue length", title="Queue depth"
     )
-    for result_axis in (latency_axis, queue_axis):
+
+    for cpu_count, samples in time_series_table.groupby("n_cpu"):
+        simulation_time = samples["time"] / US
+        latency_time_axis.plot(
+            simulation_time,
+            samples["lat_avg"] / US,
+            label=f"{int(cpu_count)} CPUs",
+        )
+        queue_time_axis.plot(
+            simulation_time,
+            samples["queue_size"],
+            label=f"{int(cpu_count)} CPUs",
+        )
+    latency_time_axis.set(
+        xlabel="Simulation time (µs)",
+        ylabel="Cumulative average latency (µs)",
+        title="Average latency over time",
+    )
+    queue_time_axis.set(
+        xlabel="Simulation time (µs)",
+        ylabel="Waiting requests",
+        title="Queue size over time",
+    )
+    latency_time_axis.legend(fontsize="small", ncol=2)
+    queue_time_axis.legend(fontsize="small", ncol=2)
+    for result_axis in result_axes.flat:
         result_axis.grid()
     results_figure.tight_layout()
     results_figure
