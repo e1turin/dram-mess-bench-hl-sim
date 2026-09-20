@@ -377,10 +377,10 @@ def _(Sequence, np):
 
 
 @app.cell(hide_code=True)
-def _(curve_widget, normalized_curve, np):
+def _(curve_widget, normalized_curve, np, queue_max_input):
     drawn_x, drawn_y = normalized_curve(curve_widget.value.get("strokes", []))
     preview_x = (
-        np.linspace(drawn_x.min(), drawn_x.max(), 400) if drawn_x.size else np.array([])
+        np.linspace(0, queue_max_input.value, 400) if drawn_x.size else np.array([])
     )
     preview_y = np.interp(preview_x, drawn_x, drawn_y) if drawn_x.size else np.array([])
     return drawn_x, drawn_y, preview_x, preview_y
