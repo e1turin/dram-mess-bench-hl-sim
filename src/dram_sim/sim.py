@@ -182,11 +182,18 @@ def _(anywidget, traitlets):
           const canvas = document.createElement("canvas");
           canvas.width = 800; canvas.height = 360;
           const clear = document.createElement("button"); clear.textContent = "Clear curve";
+          const randomToggle = document.createElement("input"); randomToggle.type = "checkbox"; randomToggle.checked = model.get("random_colors");
+          const randomLabel = document.createElement("label"); randomLabel.append(randomToggle, " Random stroke colors");
+          const controls = document.createElement("div"); controls.className = "controls"; controls.append(clear, randomLabel);
           const root = document.createElement("div"); root.className = "curve";
-          root.append(canvas, clear); el.appendChild(root);
+          root.append(canvas, controls); el.appendChild(root);
           const ctx = canvas.getContext("2d"); let drawing = false; let stroke = [];
           const cloneStrokes = strokes => (strokes || []).map(saved => saved.map(point => [...point]));
+          let nextHue = Math.random() * 360;
+          const randomColor = () => { const color = `hsl(${Math.round(nextHue)} 75% 42%)`; nextHue = (nextHue + 137.508) % 360; return color; };
           let draftStrokes = cloneStrokes(model.get("strokes"));
+          let draftColors = [...(model.get("stroke_colors") || [])];
+          while (draftColors.length < draftStrokes.length) draftColors.push(randomColor());
           const pad = { left: 72, right: 16, top: 18, bottom: 50 };
           const plotWidth = () => canvas.width - pad.left - pad.right;
           const plotHeight = () => canvas.height - pad.top - pad.bottom;
@@ -212,12 +219,12 @@ def _(anywidget, traitlets):
             ctx.strokeStyle = "#64748b"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, canvas.height - pad.bottom); ctx.lineTo(canvas.width - pad.right, canvas.height - pad.bottom); ctx.stroke();
             ctx.fillStyle = "#0f172a"; ctx.textAlign = "center"; ctx.fillText("Queue depth (requests)", pad.left + plotWidth() / 2, canvas.height - 10);
             ctx.save(); ctx.translate(16, pad.top + plotHeight() / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Latency multiplier", 0, 0); ctx.restore();
-            ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.lineCap = "round";
-            for (const saved of draftStrokes) { if (!saved.length) continue; ctx.beginPath(); ctx.moveTo(xp(saved[0][0]), yp(saved[0][1])); for (const [x, y] of saved.slice(1)) ctx.lineTo(xp(x), yp(y)); ctx.stroke(); }
+            ctx.lineWidth = 2; ctx.lineCap = "round";
+            for (const [index, saved] of draftStrokes.entries()) { if (!saved.length) continue; ctx.strokeStyle = model.get("random_colors") ? draftColors[index] : "#2563eb"; ctx.beginPath(); ctx.moveTo(xp(saved[0][0]), yp(saved[0][1])); for (const [x, y] of saved.slice(1)) ctx.lineTo(xp(x), yp(y)); ctx.stroke(); }
           }
           canvas.addEventListener("pointerdown", event => {
             drawing = true; canvas.setPointerCapture(event.pointerId); stroke = [point(event)];
-            draftStrokes = [...draftStrokes, stroke]; redraw();
+            draftStrokes = [...draftStrokes, stroke]; draftColors = [...draftColors, randomColor()]; redraw();
           });
           canvas.addEventListener("pointermove", event => {
             if (!drawing) return; stroke.push(point(event)); redraw();
@@ -225,21 +232,26 @@ def _(anywidget, traitlets):
           const stop = event => {
             if (!drawing) return;
             if (event.type === "pointerup") stroke.push(point(event));
-            drawing = false; model.set("strokes", cloneStrokes(draftStrokes)); model.save_changes(); stroke = []; redraw();
+            drawing = false; model.set("strokes", cloneStrokes(draftStrokes)); model.set("stroke_colors", [...draftColors]); model.save_changes(); stroke = []; redraw();
           };
           canvas.addEventListener("pointerup", stop); canvas.addEventListener("pointercancel", stop);
-          clear.addEventListener("click", () => { drawing = false; stroke = []; draftStrokes = []; model.set("strokes", []); model.save_changes(); redraw(); });
-          model.on("change:strokes", () => { if (!drawing) draftStrokes = cloneStrokes(model.get("strokes")); redraw(); });
+          clear.addEventListener("click", () => { drawing = false; stroke = []; draftStrokes = []; draftColors = []; model.set("strokes", []); model.set("stroke_colors", []); model.save_changes(); redraw(); });
+          randomToggle.addEventListener("change", () => { model.set("random_colors", randomToggle.checked); model.save_changes(); redraw(); });
+          model.on("change:strokes", () => { if (!drawing) { draftStrokes = cloneStrokes(model.get("strokes")); while (draftColors.length < draftStrokes.length) draftColors.push(randomColor()); } redraw(); });
+          model.on("change:stroke_colors", () => { if (!drawing) draftColors = [...(model.get("stroke_colors") || [])]; redraw(); });
+          model.on("change:random_colors", () => { randomToggle.checked = model.get("random_colors"); redraw(); });
           model.on("change:x_min change:x_max change:y_min change:y_max", redraw); redraw();
         }
         export default { render };
         """
-        _css = ".curve { display:grid; gap:8px; width:fit-content } .curve canvas { border:1px solid #cbd5e1; background:white; cursor:crosshair; touch-action:none } .curve button { width:fit-content; padding:4px 10px }"
+        _css = ".curve { display:grid; gap:8px; width:fit-content } .curve canvas { border:1px solid #cbd5e1; background:white; cursor:crosshair; touch-action:none } .curve .controls { display:flex; align-items:center; gap:16px } .curve button { width:fit-content; padding:4px 10px } .curve label { display:flex; align-items:center; cursor:pointer }"
         x_min = traitlets.Float(0.0).tag(sync=True)
         x_max = traitlets.Float(3_000.0).tag(sync=True)
         y_min = traitlets.Float(0.1).tag(sync=True)
         y_max = traitlets.Float(3.0).tag(sync=True)
         strokes = traitlets.List(default_value=[]).tag(sync=True)
+        stroke_colors = traitlets.List(trait=traitlets.Unicode(), default_value=[]).tag(sync=True)
+        random_colors = traitlets.Bool(True).tag(sync=True)
 
     return (HandDrawnCurve,)
 
