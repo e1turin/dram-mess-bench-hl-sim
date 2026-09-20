@@ -185,6 +185,8 @@ def _(anywidget, traitlets):
           const root = document.createElement("div"); root.className = "curve";
           root.append(canvas, clear); el.appendChild(root);
           const ctx = canvas.getContext("2d"); let drawing = false; let stroke = [];
+          const cloneStrokes = strokes => (strokes || []).map(saved => saved.map(point => [...point]));
+          let draftStrokes = cloneStrokes(model.get("strokes"));
           const pad = { left: 72, right: 16, top: 18, bottom: 50 };
           const plotWidth = () => canvas.width - pad.left - pad.right;
           const plotHeight = () => canvas.height - pad.top - pad.bottom;
@@ -211,13 +213,24 @@ def _(anywidget, traitlets):
             ctx.fillStyle = "#0f172a"; ctx.textAlign = "center"; ctx.fillText("Queue depth (requests)", pad.left + plotWidth() / 2, canvas.height - 10);
             ctx.save(); ctx.translate(16, pad.top + plotHeight() / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Latency multiplier", 0, 0); ctx.restore();
             ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.lineCap = "round";
-            for (const saved of model.get("strokes") || []) { if (!saved.length) continue; ctx.beginPath(); ctx.moveTo(xp(saved[0][0]), yp(saved[0][1])); for (const [x, y] of saved.slice(1)) ctx.lineTo(xp(x), yp(y)); ctx.stroke(); }
+            for (const saved of draftStrokes) { if (!saved.length) continue; ctx.beginPath(); ctx.moveTo(xp(saved[0][0]), yp(saved[0][1])); for (const [x, y] of saved.slice(1)) ctx.lineTo(xp(x), yp(y)); ctx.stroke(); }
           }
-          canvas.addEventListener("pointerdown", event => { drawing = true; canvas.setPointerCapture(event.pointerId); stroke = [point(event)]; model.set("strokes", [...(model.get("strokes") || []), stroke]); model.save_changes(); redraw(); });
-          canvas.addEventListener("pointermove", event => { if (!drawing) return; stroke.push(point(event)); const strokes = [...(model.get("strokes") || [])]; strokes[strokes.length - 1] = stroke; model.set("strokes", strokes); model.save_changes(); redraw(); });
-          const stop = () => { drawing = false; stroke = []; }; canvas.addEventListener("pointerup", stop); canvas.addEventListener("pointercancel", stop);
-          clear.addEventListener("click", () => { model.set("strokes", []); model.save_changes(); redraw(); });
-          model.on("change:strokes change:x_min change:x_max change:y_min change:y_max", redraw); redraw();
+          canvas.addEventListener("pointerdown", event => {
+            drawing = true; canvas.setPointerCapture(event.pointerId); stroke = [point(event)];
+            draftStrokes = [...draftStrokes, stroke]; redraw();
+          });
+          canvas.addEventListener("pointermove", event => {
+            if (!drawing) return; stroke.push(point(event)); redraw();
+          });
+          const stop = event => {
+            if (!drawing) return;
+            if (event.type === "pointerup") stroke.push(point(event));
+            drawing = false; model.set("strokes", cloneStrokes(draftStrokes)); model.save_changes(); stroke = []; redraw();
+          };
+          canvas.addEventListener("pointerup", stop); canvas.addEventListener("pointercancel", stop);
+          clear.addEventListener("click", () => { drawing = false; stroke = []; draftStrokes = []; model.set("strokes", []); model.save_changes(); redraw(); });
+          model.on("change:strokes", () => { if (!drawing) draftStrokes = cloneStrokes(model.get("strokes")); redraw(); });
+          model.on("change:x_min change:x_max change:y_min change:y_max", redraw); redraw();
         }
         export default { render };
         """
@@ -327,6 +340,13 @@ def _(HandDrawnCurve, curve_x_max, curve_x_min, curve_y_max, curve_y_min):
 
 
 @app.cell(hide_code=True)
+def _(curve_model, mo):
+    curve_widget = mo.ui.anywidget(curve_model)
+    curve_widget
+    return (curve_widget,)
+
+
+@app.cell(hide_code=True)
 def _(Sequence, np):
     def normalized_curve(
         strokes: Sequence[Sequence[Sequence[float]]],
@@ -345,15 +365,8 @@ def _(Sequence, np):
 
 
 @app.cell(hide_code=True)
-def _(curve_model, mo):
-    curve_widget = mo.ui.anywidget(curve_model)
-    curve_widget
-    return
-
-
-@app.cell
-def _(curve_model, normalized_curve, np):
-    drawn_x, drawn_y = normalized_curve(curve_model.strokes)
+def _(curve_widget, normalized_curve, np):
+    drawn_x, drawn_y = normalized_curve(curve_widget.value.get("strokes", []))
     preview_x = (
         np.linspace(drawn_x.min(), drawn_x.max(), 400) if drawn_x.size else np.array([])
     )
