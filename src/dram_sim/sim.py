@@ -6,19 +6,20 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
-    import anywidget
     import json
+    import re
+    import statistics as stats
+    from collections.abc import Callable, Sequence
+    from dataclasses import dataclass, field
+    from datetime import datetime
+    from pathlib import Path
+
+    import anywidget
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
-    import re
-    import statistics as stats
     import traitlets
-    from dataclasses import dataclass, field
-    from datetime import datetime
-    from pathlib import Path
-    from typing import Callable, Sequence
     from simpy import Environment, Resource
     from simpy.core import SimTime
 
@@ -56,7 +57,6 @@ def _(mo):
 
     Experiment uses queue models of hardware system.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -68,20 +68,18 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo, resource_directory):
     mo.image(
-                src=str(resource_directory / "experiment-model.png"),
-                alt="DRAM experiment model",
-                vmax=100
-            )
-    return
+        src=str(resource_directory / "experiment-model.png"),
+        alt="DRAM experiment model",
+        vmax=100,
+    )
 
 
 @app.cell(hide_code=True)
 def _(mo, resource_directory):
     mo.image(
-                src=str(resource_directory / "DRAM-latency-hypothesis.png"),
-                alt="DRAM latency hypothesis",
-            )
-    return
+        src=str(resource_directory / "DRAM-latency-hypothesis.png"),
+        alt="DRAM latency hypothesis",
+    )
 
 
 @app.cell(hide_code=True)
@@ -91,7 +89,6 @@ def _(mo):
 
     Experiment evironment configuration
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -99,7 +96,6 @@ def _(mo):
     mo.md(r"""
     ### System Setup
     """)
-    return
 
 
 @app.cell
@@ -221,7 +217,6 @@ def _(mo):
     mo.md(r"""
     ### Latency-Capacity Curve Setup
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -229,7 +224,6 @@ def _(mo):
     mo.md(r"""
     Utility class for interactive function drowing widget.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -310,7 +304,9 @@ def _(anywidget, traitlets):
         y_min = traitlets.Float(20.0).tag(sync=True)
         y_max = traitlets.Float(500.0).tag(sync=True)
         strokes = traitlets.List(default_value=[]).tag(sync=True)
-        stroke_colors = traitlets.List(trait=traitlets.Unicode(), default_value=[]).tag(sync=True)
+        stroke_colors = traitlets.List(trait=traitlets.Unicode(), default_value=[]).tag(
+            sync=True
+        )
         random_colors = traitlets.Bool(True).tag(sync=True)
 
     return (HandDrawnCurve,)
@@ -324,12 +320,8 @@ def _(mo):
     channel_input = mo.ui.slider(1, 8, value=1, step=1, label="DRAM channels")
     queue_min_input = mo.ui.number(value=0, step=100, label="Queue-depth x minimum")
     queue_max_input = mo.ui.number(value=3_000, step=100, label="Queue-depth x maximum")
-    latency_min_input = mo.ui.number(
-        value=5, step=1, label="Latency y minimum (ns)"
-    )
-    latency_max_input = mo.ui.number(
-        value=100, step=1, label="Latency y maximum (ns)"
-    )
+    latency_min_input = mo.ui.number(value=5, step=1, label="Latency y minimum (ns)")
+    latency_max_input = mo.ui.number(value=200, step=1, label="Latency y maximum (ns)")
     frequency_input = mo.ui.slider(
         1.0, 6.0, value=4.0, step=0.1, label="CPU frequency (GHz)"
     )
@@ -337,7 +329,7 @@ def _(mo):
         100, 5_000, value=1_000, step=50, label="Instructions per loop"
     )
     runtime_input = mo.ui.slider(
-        10, 10_000, value=1_000, step=10, label="Simulation duration (µs)"
+        10, 2_000, value=500, step=5, label="Simulation duration (µs)"
     )
     simulation_name_input = mo.ui.text(value="dram-mess", label="Simulation name")
     cpu_counts_input = mo.ui.text(value="1,2,3,4,5,6,8,10,12,16,20", label="CPU counts")
@@ -395,7 +387,6 @@ def _(
             mo.hstack([latency_min_input, latency_max_input]),
         ]
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -411,7 +402,6 @@ def _(mo):
     mo.md(r"""
     Draw your `capacity -> latency` function plot:
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -452,7 +442,6 @@ def _(curve_widget, normalized_curve, np, queue_max_input):
 @app.cell(hide_code=True)
 def _(drawn_x, drawn_y, plt, preview_x, preview_y):
 
-
     curve_figure, curve_axis = plt.subplots(figsize=(8, 3))
     if drawn_x.size:
         curve_axis.plot(drawn_x, drawn_y, ".", alpha=0.35, label="drawn samples")
@@ -474,7 +463,6 @@ def _(drawn_x, drawn_y, plt, preview_x, preview_y):
     curve_axis.grid()
     curve_figure.tight_layout()
     curve_figure
-    return
 
 
 @app.cell(hide_code=True)
@@ -482,7 +470,6 @@ def _(mo):
     mo.md(r"""
     ## Run Simulation
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -513,14 +500,14 @@ def _(
     simulate,
 ):
     result_table = pd.DataFrame(columns=["n_cpu", "lat_avg", "tput", "max_queue"])
-    time_series_table = pd.DataFrame(
-        columns=["time", "lat_avg", "queue_size", "n_cpu"]
-    )
+    time_series_table = pd.DataFrame(columns=["time", "lat_avg", "queue_size", "n_cpu"])
     if not run_button.value:
         run_status = mo.md("Press run simulation button")
     else:
         requested_cpu_counts = [
-            int(item.strip()) for item in cpu_counts_input.value.split(",") if item.strip()
+            int(item.strip())
+            for item in cpu_counts_input.value.split(",")
+            if item.strip()
         ]
         active_parameters = Parameters(
             running_time=runtime_input.value * 1_000 * NS,
@@ -532,6 +519,7 @@ def _(
                 instructions_per_loop=instructions_input.value,
             ),
         )
+
         def hand_drawn_latency(queue_depth: int) -> float:
             latency_ns = (
                 float(np.interp(queue_depth, drawn_x, drawn_y))
@@ -546,9 +534,7 @@ def _(
         ]
         result_table = pd.DataFrame([summary for summary, _trace in simulation_results])
         time_series_table = pd.DataFrame(
-            sample
-            for _summary, trace in simulation_results
-            for sample in trace
+            sample for _summary, trace in simulation_results for sample in trace
         )
         run_status = mo.callout(
             "Simulation complete",
@@ -560,10 +546,9 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(US, plt, result_table, time_series_table):
-    results_figure, result_axes = plt.subplots(2, 2, figsize=(11, 7))
-    latency_axis, queue_axis = result_axes[0]
-    latency_time_axis, queue_time_axis = result_axes[1]
+def _(US, plt, result_table):
+    results_figure, result_axes = plt.subplots(1, 2, figsize=(11, 4))
+    latency_axis, queue_axis = result_axes
     bandwidth = result_table["tput"] * US
     latency = result_table["lat_avg"] / US
     latency_axis.plot(bandwidth, latency, "o-")
@@ -583,7 +568,17 @@ def _(US, plt, result_table, time_series_table):
     queue_axis.set(
         xlabel="CPU count", ylabel="Maximum queue length", title="Queue depth"
     )
+    for result_axis in result_axes:
+        result_axis.grid()
+    results_figure.tight_layout()
+    results_figure
+    return (results_figure,)
 
+
+@app.cell(hide_code=True)
+def _(US, plt, time_series_table):
+    time_series_figure, time_series_axes = plt.subplots(1, 2, figsize=(11, 4))
+    latency_time_axis, queue_time_axis = time_series_axes
     for cpu_count, samples in time_series_table.groupby("n_cpu"):
         simulation_time = samples["time"] / US
         latency_time_axis.plot(
@@ -609,17 +604,16 @@ def _(US, plt, result_table, time_series_table):
     if not time_series_table.empty:
         latency_time_axis.legend(fontsize="small", ncol=2)
         queue_time_axis.legend(fontsize="small", ncol=2)
-    for result_axis in result_axes.flat:
-        result_axis.grid()
-    results_figure.tight_layout()
-    results_figure
-    return (results_figure,)
+    for time_series_axis in time_series_axes:
+        time_series_axis.grid()
+    time_series_figure.tight_layout()
+    time_series_figure
+    return (time_series_figure,)
 
 
 @app.cell(hide_code=True)
 def _(mo, result_table):
     mo.vstack([mo.md("## Results"), result_table])
-    return
 
 
 @app.cell(hide_code=True)
@@ -651,6 +645,7 @@ def _(
     runtime_input,
     save_results_button,
     simulation_name_input,
+    time_series_figure,
 ):
     if not save_results_button.value:
         save_status = mo.md("Save the current plots and configuration to `out/`.")
@@ -663,8 +658,10 @@ def _(
         output_directory = Path("out")
         output_directory.mkdir(exist_ok=True)
         plot_path = output_directory / f"{artifact_stem}.png"
+        time_series_plot_path = output_directory / f"{artifact_stem}-time-series.png"
         config_path = output_directory / f"{artifact_stem}.json"
         results_figure.savefig(plot_path, dpi=160, bbox_inches="tight")
+        time_series_figure.savefig(time_series_plot_path, dpi=160, bbox_inches="tight")
         configuration = {
             "simulation_name": simulation_name_input.value,
             "saved_at": timestamp,
@@ -689,11 +686,12 @@ def _(
         }
         config_path.write_text(json.dumps(configuration, indent=2), encoding="utf-8")
         save_status = mo.callout(
-            f"Saved [{plot_path}]({plot_path}) and [{config_path}]({config_path}).",
+            f"Saved [{plot_path}]({plot_path}), "
+            f"[{time_series_plot_path}]({time_series_plot_path}), and "
+            f"[{config_path}]({config_path}).",
             kind="success",
         )
     save_status
-    return
 
 
 if __name__ == "__main__":
