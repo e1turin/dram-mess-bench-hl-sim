@@ -44,7 +44,7 @@ def _():
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     # DRAM MESS high-level simulation
@@ -194,6 +194,14 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Utility class for interactive function drowing widget.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _(anywidget, traitlets):
     class HandDrawnCurve(anywidget.AnyWidget):
         """Canvas widget that synchronizes hand-drawn strokes to Python."""
@@ -286,10 +294,10 @@ def _(mo):
     queue_min_input = mo.ui.number(value=0, step=100, label="Queue-depth x minimum")
     queue_max_input = mo.ui.number(value=3_000, step=100, label="Queue-depth x maximum")
     latency_min_input = mo.ui.number(
-        value=20, step=5, label="Latency y minimum (ns)"
+        value=5, step=1, label="Latency y minimum (ns)"
     )
     latency_max_input = mo.ui.number(
-        value=500, step=5, label="Latency y maximum (ns)"
+        value=100, step=1, label="Latency y maximum (ns)"
     )
     frequency_input = mo.ui.slider(
         1.0, 6.0, value=4.0, step=0.1, label="CPU frequency (GHz)"
@@ -318,12 +326,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(
-    latency_max_input,
-    latency_min_input,
-    queue_max_input,
-    queue_min_input,
-):
+def _(latency_max_input, latency_min_input, queue_max_input, queue_min_input):
     curve_x_min = float(queue_min_input.value or 0)
     curve_x_max = max(float(queue_max_input.value or curve_x_min + 1), curve_x_min + 1)
     curve_y_min = float(latency_min_input.value or 0)
@@ -370,6 +373,14 @@ def _(HandDrawnCurve, curve_x_max, curve_x_min, curve_y_max, curve_y_min):
         x_min=curve_x_min, x_max=curve_x_max, y_min=curve_y_min, y_max=curve_y_max
     )
     return (curve_model,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Draw your `capacity -> latency` function plot:
+    """)
+    return
 
 
 @app.cell(hide_code=True)
@@ -564,8 +575,9 @@ def _(US, plt, result_table, time_series_table):
         ylabel="Waiting requests",
         title="Queue size over time",
     )
-    latency_time_axis.legend(fontsize="small", ncol=2)
-    queue_time_axis.legend(fontsize="small", ncol=2)
+    if not time_series_table.empty:
+        latency_time_axis.legend(fontsize="small", ncol=2)
+        queue_time_axis.legend(fontsize="small", ncol=2)
     for result_axis in result_axes.flat:
         result_axis.grid()
     results_figure.tight_layout()
