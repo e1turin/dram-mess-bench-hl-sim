@@ -49,8 +49,8 @@ def _(mo):
     mo.md("""
     # DRAM MESS high-level simulation
 
-    Draw a latency multiplier as a function of DRAM queue depth, then run a sweep
-    over CPU counts. The drawn curve multiplies a gamma-distributed base latency.
+    Draw absolute DRAM latency as a function of queue depth, then run a sweep
+    over CPU counts. Curve values are interpreted directly as nanoseconds.
     """)
     return
 
@@ -239,7 +239,7 @@ def _(anywidget, traitlets):
             for (let index = 0; index <= 6; index++) { const y = ymin + index * yStep; const py = yp(y); ctx.beginPath(); ctx.moveTo(pad.left, py); ctx.lineTo(canvas.width - pad.right, py); ctx.stroke(); ctx.fillText(y.toPrecision(3), pad.left - 8, py + 4); }
             ctx.strokeStyle = "#64748b"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, canvas.height - pad.bottom); ctx.lineTo(canvas.width - pad.right, canvas.height - pad.bottom); ctx.stroke();
             ctx.fillStyle = "#0f172a"; ctx.textAlign = "center"; ctx.fillText("Queue depth (requests)", pad.left + plotWidth() / 2, canvas.height - 10);
-            ctx.save(); ctx.translate(16, pad.top + plotHeight() / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Latency multiplier", 0, 0); ctx.restore();
+            ctx.save(); ctx.translate(16, pad.top + plotHeight() / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Latency (ns)", 0, 0); ctx.restore();
             ctx.lineWidth = 2; ctx.lineCap = "round";
             for (const [index, saved] of draftStrokes.entries()) { if (!saved.length) continue; ctx.strokeStyle = model.get("random_colors") ? draftColors[index] : "#2563eb"; ctx.beginPath(); ctx.moveTo(xp(saved[0][0]), yp(saved[0][1])); for (const [x, y] of saved.slice(1)) ctx.lineTo(xp(x), yp(y)); ctx.stroke(); }
           }
@@ -268,8 +268,8 @@ def _(anywidget, traitlets):
         _css = ".curve { display:grid; gap:8px; width:fit-content } .curve canvas { border:1px solid #cbd5e1; background:white; cursor:crosshair; touch-action:none } .curve .controls { display:flex; align-items:center; gap:16px } .curve button { width:fit-content; padding:4px 10px } .curve label { display:flex; align-items:center; cursor:pointer }"
         x_min = traitlets.Float(0.0).tag(sync=True)
         x_max = traitlets.Float(3_000.0).tag(sync=True)
-        y_min = traitlets.Float(0.1).tag(sync=True)
-        y_max = traitlets.Float(3.0).tag(sync=True)
+        y_min = traitlets.Float(20.0).tag(sync=True)
+        y_max = traitlets.Float(500.0).tag(sync=True)
         strokes = traitlets.List(default_value=[]).tag(sync=True)
         stroke_colors = traitlets.List(trait=traitlets.Unicode(), default_value=[]).tag(sync=True)
         random_colors = traitlets.Bool(True).tag(sync=True)
@@ -280,16 +280,16 @@ def _(anywidget, traitlets):
 @app.cell(hide_code=True)
 def _(mo):
     base_latency_input = mo.ui.slider(
-        20, 200, value=70, step=5, label="Base DRAM latency (ns)"
+        20, 200, value=70, step=5, label="Fallback DRAM latency (ns)"
     )
     channel_input = mo.ui.slider(1, 8, value=1, step=1, label="DRAM channels")
     queue_min_input = mo.ui.number(value=0, step=100, label="Queue-depth x minimum")
     queue_max_input = mo.ui.number(value=3_000, step=100, label="Queue-depth x maximum")
-    multiplier_min_input = mo.ui.number(
-        value=0.1, step=0.1, label="Latency multiplier y minimum"
+    latency_min_input = mo.ui.number(
+        value=20, step=5, label="Latency y minimum (ns)"
     )
-    multiplier_max_input = mo.ui.number(
-        value=3.0, step=0.1, label="Latency multiplier y maximum"
+    latency_max_input = mo.ui.number(
+        value=500, step=5, label="Latency y maximum (ns)"
     )
     frequency_input = mo.ui.slider(
         1.0, 6.0, value=4.0, step=0.1, label="CPU frequency (GHz)"
@@ -308,8 +308,8 @@ def _(mo):
         cpu_counts_input,
         frequency_input,
         instructions_input,
-        multiplier_max_input,
-        multiplier_min_input,
+        latency_max_input,
+        latency_min_input,
         queue_max_input,
         queue_min_input,
         runtime_input,
@@ -319,16 +319,16 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(
-    multiplier_max_input,
-    multiplier_min_input,
+    latency_max_input,
+    latency_min_input,
     queue_max_input,
     queue_min_input,
 ):
     curve_x_min = float(queue_min_input.value or 0)
     curve_x_max = max(float(queue_max_input.value or curve_x_min + 1), curve_x_min + 1)
-    curve_y_min = float(multiplier_min_input.value or 0)
+    curve_y_min = float(latency_min_input.value or 0)
     curve_y_max = max(
-        float(multiplier_max_input.value or curve_y_min + 0.1), curve_y_min + 0.1
+        float(latency_max_input.value or curve_y_min + 1), curve_y_min + 1
     )
     return curve_x_max, curve_x_min, curve_y_max, curve_y_min
 
@@ -340,9 +340,9 @@ def _(
     cpu_counts_input,
     frequency_input,
     instructions_input,
+    latency_max_input,
+    latency_min_input,
     mo,
-    multiplier_max_input,
-    multiplier_min_input,
     queue_max_input,
     queue_min_input,
     runtime_input,
@@ -358,7 +358,7 @@ def _(
                 "#### Drawing range\nSet the axis bounds before drawing; changing a bound creates a fresh canvas."
             ),
             mo.hstack([queue_min_input, queue_max_input]),
-            mo.hstack([multiplier_min_input, multiplier_max_input]),
+            mo.hstack([latency_min_input, latency_max_input]),
         ]
     )
     return
@@ -414,7 +414,7 @@ def _(drawn_x, drawn_y, plt, preview_x, preview_y):
     curve_figure, curve_axis = plt.subplots(figsize=(8, 3))
     if drawn_x.size:
         curve_axis.plot(drawn_x, drawn_y, ".", alpha=0.35, label="drawn samples")
-        curve_axis.plot(preview_x, preview_y, label="interpolated multiplier")
+        curve_axis.plot(preview_x, preview_y, label="interpolated latency")
         curve_axis.legend()
     else:
         curve_axis.text(
@@ -426,7 +426,7 @@ def _(drawn_x, drawn_y, plt, preview_x, preview_y):
         )
     curve_axis.set(
         xlabel="Queue depth (requests)",
-        ylabel="Latency multiplier",
+        ylabel="Latency (ns)",
         title="Latency curve",
     )
     curve_axis.grid()
@@ -490,16 +490,13 @@ def _(
                 instructions_per_loop=instructions_input.value,
             ),
         )
-        latency_rng = np.random.default_rng(0)
-
         def hand_drawn_latency(queue_depth: int) -> float:
-            multiplier = (
-                float(np.interp(queue_depth, drawn_x, drawn_y)) if drawn_x.size else 1.0
+            latency_ns = (
+                float(np.interp(queue_depth, drawn_x, drawn_y))
+                if drawn_x.size
+                else active_parameters.dram.base_latency / NS
             )
-            return float(
-                latency_rng.gamma(shape=1.5, scale=active_parameters.dram.base_latency)
-                * max(multiplier, 0.01)
-            )
+            return float(max(latency_ns, 0.0) * NS)
 
         simulation_results = [
             simulate(cpu_count, active_parameters, hand_drawn_latency)
@@ -600,9 +597,9 @@ def _(
     frequency_input,
     instructions_input,
     json,
+    latency_max_input,
+    latency_min_input,
     mo,
-    multiplier_max_input,
-    multiplier_min_input,
     queue_max_input,
     queue_min_input,
     re,
@@ -641,8 +638,8 @@ def _(
             "drawing_range": {
                 "queue_min": queue_min_input.value,
                 "queue_max": queue_max_input.value,
-                "multiplier_min": multiplier_min_input.value,
-                "multiplier_max": multiplier_max_input.value,
+                "latency_min_ns": latency_min_input.value,
+                "latency_max_ns": latency_max_input.value,
             },
             "drawn_strokes": curve_model.strokes,
             "results": result_table.to_dict(orient="records"),
